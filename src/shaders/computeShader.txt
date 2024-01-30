@@ -1,0 +1,97 @@
+@group(0) @binding(0) var<storage, read_write> data: array<f32>;
+@group(0) @binding(1) var<uniform> viewMatrix: mat4x4f;
+@group(0) @binding(2) var<uniform> camVars: vec4f;
+@group(0) @binding(3) var<uniform> offset: vec2f;
+@group(0) @binding(4) var<storage, read_write> covData: array<f32>;
+@group(0) @binding(5) var<storage, read_write> buff1 : atomic<u32>;
+@group(0) @binding(6) var<storage, read_write> output1: array<f32>;
+@group(0) @binding(11) var<uniform> viewMatrixInverse: mat4x4f;
+@group(0) @binding(12) var<uniform> viewMatrixTransposeInverse: mat4x4f;
+
+
+
+@compute @workgroup_size(4,4,4) fn compute(
+    @builtin(workgroup_id) workgroup_id : vec3<u32>,
+    @builtin(local_invocation_id) local_invocation_id : vec3<u32>,
+    @builtin(global_invocation_id) global_invocation_id : vec3<u32>,
+    @builtin(local_invocation_index) local_invocation_index: u32,
+    @builtin(num_workgroups) num_workgroups: vec3<u32>
+) {
+
+    let workgroup_index =  
+    workgroup_id.x +
+    workgroup_id.y * num_workgroups.x +
+    workgroup_id.z * num_workgroups.x * num_workgroups.y;
+
+
+    let global_invocation_index =
+    workgroup_index * 64 +
+    local_invocation_index;
+
+    var pos = vec4f(data[global_invocation_index*10],data[global_invocation_index*10+1],data[global_invocation_index*10+2],1);
+    pos = viewMatrix*pos;
+    let dist = sqrt((pos.x * pos.x) + (pos.y * pos.y) + (pos.z * pos.z));
+
+
+
+    //change const 1000 here to farz
+    //this should be most efficient way in terms of total lines of code (due to how gpu code works this is good)
+    if((pos.z > 0) & (dist < 1000)){
+
+        var closestPos: vec4f = vec4f(0,0,pos.z,1);
+
+        var invCov = mat4x4f(covData[global_invocation_index*9],covData[global_invocation_index*9+1],covData[global_invocation_index*9+2],0,covData[global_invocation_index*9+3],covData[global_invocation_index*9+4],covData[global_invocation_index*9+5],0,covData[global_invocation_index*9+6],covData[global_invocation_index*9+7],covData[global_invocation_index*9+8],0,0,0,0,1);
+        invCov = viewMatrixTransposeInverse * invCov * viewMatrixInverse;
+        if(pos.x > tan(camVars.r/2)*pos.z - offset.x * tan(camVars.r/4)*pos.z){ //right side
+            closestPos.x = tan(camVars.r/2)*pos.z - offset.x * tan(camVars.r/4)*pos.z; 
+        }else if(pos.x < tan(camVars.r/4)*pos.z - offset.x * tan(camVars.r/4)*pos.z){ //left side
+            closestPos.x = tan(camVars.r/4)*pos.z - offset.x * tan(camVars.r/4)*pos.z;
+        }else{
+            closestPos.x = pos.x;
+        }
+
+        if(pos.y > tan(camVars.g/2)*pos.z - offset.y * tan(camVars.g/4)*pos.z){
+            closestPos.y = tan(camVars.g/2)*pos.z - offset.y * tan(camVars.g/4)*pos.z;
+        }else if(pos.y < tan(camVars.g/4)*pos.z - offset.y * tan(camVars.g/4)*pos.z){
+            closestPos.y = tan(camVars.g/4)*pos.z - offset.y * tan(camVars.g/4)*pos.z;
+        }else{
+            closestPos.y = pos.y;
+        }
+    
+        let invCov2x2 = mat2x2f(invCov[0][0],invCov[1][0],invCov[0][1],invCov[1][1]);
+        let diffPos = vec2f(closestPos.x - pos.x, closestPos.y - pos.y);
+        let intermediate: vec2f = invCov2x2 * diffPos;
+        let exponent = -0.5 * (diffPos.x * intermediate.x + diffPos.y * intermediate.y);
+
+        if(exp(exponent) > 0.99){
+            var id = atomicAdd(&buff1,1);
+
+            output1[id*20+0] = pos.x;
+            output1[id*20+1] = pos.y;
+            output1[id*20+2] = pos.z;
+            output1[id*20+3] = data[global_invocation_index*10+3];
+            output1[id*20+4] = data[global_invocation_index*10+4];
+            output1[id*20+5] = data[global_invocation_index*10+5];
+            output1[id*20+6] = data[global_invocation_index*10+6];
+            output1[id*20+7] = data[global_invocation_index*10+7];
+            output1[id*20+8] = data[global_invocation_index*10+8];
+            output1[id*20+9] = data[global_invocation_index*10+9];
+            output1[id*20+10] = covData[global_invocation_index*9];
+            output1[id*20+11] = covData[global_invocation_index*9+1];
+            output1[id*20+12] = covData[global_invocation_index*9+2];
+            output1[id*20+13] = covData[global_invocation_index*9+3];
+            output1[id*20+14] = covData[global_invocation_index*9+4];
+            output1[id*20+15] = covData[global_invocation_index*9+5];
+            output1[id*20+16] = covData[global_invocation_index*9+6];
+            output1[id*20+17] = covData[global_invocation_index*9+7];
+            output1[id*20+18] = covData[global_invocation_index*9+8];
+            output1[id*20+19] = dist;
+            
+        }
+
+    }
+
+
+
+
+} 

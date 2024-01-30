@@ -1,0 +1,56 @@
+
+@group(0) @binding(0) var<storage, read_write> covData: array<f32>;
+@group(0) @binding(1) var<storage, read_write> output: array<f32>;
+@compute @workgroup_size(4,4,4) fn compute(
+    @builtin(workgroup_id) workgroup_id : vec3<u32>,
+    @builtin(local_invocation_id) local_invocation_id : vec3<u32>,
+    @builtin(global_invocation_id) global_invocation_id : vec3<u32>,
+    @builtin(local_invocation_index) local_invocation_index: u32,
+    @builtin(num_workgroups) num_workgroups: vec3<u32>
+) {
+
+    let workgroup_index =  
+    workgroup_id.x +
+    workgroup_id.y * num_workgroups.x +
+    workgroup_id.z * num_workgroups.x * num_workgroups.y;
+
+
+    let global_invocation_index =
+    workgroup_index * 64 +
+    local_invocation_index;
+
+
+    let q0 = covData[global_invocation_index*7+3];
+    let q1 = covData[global_invocation_index*7+4];
+    let q2 = covData[global_invocation_index*7+5]; 
+    let q3 = covData[global_invocation_index*7+6];
+    var rotMat: mat3x3f = mat3x3f(  2*q0*q0+2*q1*q1-1  ,  2*q1*q2+2*q0*q3  ,  2*q1*q3-2*q0*q2  ,  2*q1*q2-2*q0*q3  ,  2*q0*q0+2*q2*q2-1  ,  2*q2*q3+2*q0*q1  ,  2*q1*q3+2*q0*q2  ,  2*q2*q3-2*q0*q1  ,  2*q0*q0+2*q3*q3-1 );
+    var scaleMat: mat3x3f = mat3x3f(covData[global_invocation_index*7],0,0,0,covData[global_invocation_index*7+1],0,0,0,covData[global_invocation_index*7+2]);
+    var covarMat : mat3x3f = rotMat * scaleMat * scaleMat * transpose(rotMat);
+
+    let det = determinant(covarMat);
+
+    let a11 = (covarMat[1][1] * covarMat[2][2] - covarMat[1][2] * covarMat[2][1])/det;
+    let a12 = -(covarMat[0][1] * covarMat[2][2] - covarMat[0][2] * covarMat[2][1])/det; //this is the 2nd space along the left side of the matrix
+    let a13 = (covarMat[0][1] * covarMat[1][2] - covarMat[1][1] * covarMat[0][2])/det;
+    let a21 = -(covarMat[1][0] * covarMat[2][2] - covarMat[2][0] * covarMat[1][2])/det;
+    let a22 = (covarMat[0][0] * covarMat[2][2] - covarMat[0][2] * covarMat[2][0])/det;
+    let a23 = -(covarMat[0][0] * covarMat[1][2] - covarMat[1][0] * covarMat[0][2])/det;
+    let a31 = (covarMat[1][0] * covarMat[2][1] - covarMat[2][0] * covarMat[1][1])/det;
+    let a32 = -(covarMat[0][0] * covarMat[2][1] - covarMat[0][1] * covarMat[2][0])/det;
+    let a33 = (covarMat[0][0] * covarMat[1][1] - covarMat[1][0] * covarMat[0][1])/det;
+
+
+    output[global_invocation_index*9+0] = a11;
+    output[global_invocation_index*9+1] = a12;
+    output[global_invocation_index*9+2] = a13;
+    output[global_invocation_index*9+3] = a21;
+    output[global_invocation_index*9+4] = a22;
+    output[global_invocation_index*9+5] = a23;
+    output[global_invocation_index*9+6] = a31;
+    output[global_invocation_index*9+7] = a32;
+    output[global_invocation_index*9+8] = a33;
+
+
+
+}
