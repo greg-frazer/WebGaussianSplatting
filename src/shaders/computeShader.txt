@@ -5,6 +5,7 @@
 @group(0) @binding(4) var<storage, read_write> covData: array<f32>;
 @group(0) @binding(5) var<storage, read_write> buff1 : atomic<u32>;
 @group(0) @binding(6) var<storage, read_write> output1: array<f32>;
+@group(0) @binding(7) var<storage, read_write> keyOutput1: array<u32>;
 @group(0) @binding(11) var<uniform> viewMatrixInverse: mat4x4f;
 @group(0) @binding(12) var<uniform> viewMatrixTransposeInverse: mat4x4f;
 
@@ -86,6 +87,9 @@
             output1[id*20+17] = covData[global_invocation_index*9+7];
             output1[id*20+18] = covData[global_invocation_index*9+8];
             output1[id*20+19] = dist;
+            //var key = u32((u32(dist * 67108864) & u32(4095 << 20)) | id);
+            var key = u32((id << 12) | u32(dist * 64));
+            keyOutput1[id] = key;
             
         }
 

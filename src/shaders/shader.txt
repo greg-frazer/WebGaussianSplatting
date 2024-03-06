@@ -1,13 +1,13 @@
 struct OurVertexShaderOutput {
 @builtin(position) position: vec4f,
-@location(0) texcoord: vec2f,
 };
 
 struct ImgIndex {
 i: vec2f,
 };
 
-
+@group(0) @binding(0) var<storage, read_write> data: array<f32>;
+@group(0) @binding(1) var<storage, read_write> keys: array<i32>;
 @vertex fn vs(
 @builtin(vertex_index) vertexIndex : u32
 ) -> OurVertexShaderOutput {
@@ -29,7 +29,6 @@ var vsOutput: OurVertexShaderOutput;
 var xy = pos[vertexIndex];
 var position = vec4f(xy*2-1, 0, 1);
 vsOutput.position = position;
-vsOutput.texcoord = xy;
 return vsOutput;
 }
 
@@ -38,7 +37,6 @@ return vsOutput;
 
 
 @fragment fn fs(fsInput: OurVertexShaderOutput) -> @location(0) vec4f {
-var texcoord = vec4(fsInput.texcoord,0,1);
 
 
 var tex1 = vec4f(1,0,1,1);

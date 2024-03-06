@@ -3,6 +3,8 @@ import {vec4,mat4} from 'https://webgpufundamentals.org/3rdparty/wgpu-matrix.mod
 import * as THREE from 'three';
 import { PLYLoader } from 'three/examples/jsm/loaders/PLYLoader';
 import { mergeSort } from './merge.js';
+import {test} from './radix_sort_m.js';
+import { EngineContext } from "./EngineContext.js"
   
 function fail(msg) {
   // eslint-disable-next-line no-alert
@@ -52,16 +54,16 @@ async function main() {
     device,
     format: presentationFormat,
   });
-  /*
+  
   //Load shader from shaders/shader.txt
-  const module = device.createShaderModule({
+  var module = device.createShaderModule({
     label: 'our hardcoded textured quad shaders',
     code: await (await fetch("src/shaders/shader.txt")).text(),
   });
 
 
   //initialize the rendering pipeline, with alpha blending.
-  const pipeline = device.createRenderPipeline({
+  const RenderPipeline = device.createRenderPipeline({
     label: 'hardcoded textured quad pipeline',
     layout: 'auto',
     vertex: {
@@ -74,7 +76,7 @@ async function main() {
       targets: [{ format: presentationFormat, blend: {color: {srcFactor : "src-alpha", dstFactor: "dst-alpha", operation:"add"}, alpha: {srcFactor : "src-alpha", dstFactor: "dst-alpha", operation : "add"}} }],
     },
   });
-*/
+
   //initialize a renderPassDescriptor for the pipeline to use
   const renderPassDescriptor = {
     label: 'our basic canvas renderPass',
@@ -154,11 +156,12 @@ async function main() {
     }
   }
 
-
+  var time;
   const camera = new Camera(0,2,0,0,0,0);
   var outputs = [];
   var results = [];
-  var atomsList = [];
+  var keyList = [];
+  var keyOutputs = [];
   var module;
   var pipeline;
   var bindGroup;
@@ -218,12 +221,18 @@ async function main() {
         usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
       });
       results.push(resultBuffer);
-      const atomsBuffer = device.createBuffer({
+      const keysBuffer = device.createBuffer({
         label: 'uniforms for quad',
-        size: 4,
+        size: 4*(pointsColourData.byteLength/40),
         usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
       });
-      atomsList.push(atomsBuffer);
+      keyList.push(keysBuffer);
+      const keysOutputBuffer = device.createBuffer({
+        label: 'uniforms for quad',
+        size: 4*(pointsColourData.byteLength/40),
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+      });
+      keyOutputs.push(keysOutputBuffer);
     }
 
     InverseCovarBuffer = device.createBuffer({
@@ -238,6 +247,7 @@ async function main() {
 
   async function computeInverseCovarMatrix(scaleRotationSplit){
     
+    time = Date.now();
     console.log("setting up calculating inverted covariance matrices")
     module = device.createShaderModule({
       label: 'our hardcoded textured quad shaders',
@@ -254,7 +264,8 @@ async function main() {
     });
 
 
-
+    console.log("set up completed in" + (Date.now()-time) + "ms")
+    time = Date.now();
     console.log("beginning calculating inverted covariance matrices")
 
     const workBuffers = [];
@@ -319,13 +330,14 @@ async function main() {
     invcov.set(workBuffers[1],l1);
     invcov.set(workBuffers[2],l1+l2);
     invcov.set(workBuffers[3],l1+l2+l3);
-    console.log("done calculating inverted covariance matrices");
+    
+    console.log("calculations completed in" + (Date.now()-time) + "ms")
     return invcov;
   }
 
   async function compute(covarianceMatrices,pointsColourData,camera){
     
-    
+    time = Date.now();
     console.log("intizialising determining gaussian tile intersections")
     
     //do these modify viewMatrix in place -- dont think so (did print tests for transpose(), did not do for inverse()).
@@ -353,10 +365,6 @@ async function main() {
     });
 
     device.queue.writeBuffer(workBuffer,0,pointsColourData);
-
-
-
-
     device.queue.writeBuffer(InverseCovarBuffer,0,covarianceMatrices);
 
 
@@ -370,8 +378,8 @@ async function main() {
     device.queue.writeBuffer(camVarsBuffer,0,camVars);
 
 
-    
-
+    console.log("init completed in" + (Date.now() - time) + "ms")
+    time = Date.now();
     console.log("beginning determining gaussian tile intersections")
     for(var i = 0; i < 4; i++){
       for(var j = 0; j< 4; j++){
@@ -389,6 +397,7 @@ async function main() {
             { binding: 4, resource: { buffer: InverseCovarBuffer} },
             { binding: 5, resource: { buffer: atom } },
             { binding: 6, resource: { buffer: outputs[i*4 + j] } },
+            { binding: 7, resource: { buffer: keyOutputs[i*4 + j] } },
             { binding: 11, resource: { buffer: viewMatrixInverseBuffer } },
             { binding: 12, resource: { buffer: viewMatrixTransposeInverseBuffer } },
           ],
@@ -408,32 +417,37 @@ async function main() {
 
         
         encoder.copyBufferToBuffer(outputs[i*4+j], 0, results[i*4+j], 0, results[i*4+j].size);
-        encoder.copyBufferToBuffer(atom, 0, atomsList[i*4+j], 0, atomsList[i*4+j].size);
+        encoder.copyBufferToBuffer(keyOutputs[i*4+j], 0, keyList[i*4+j], 0, keyList[i*4+j].size);
         commandBuffer = encoder.finish();
         device.queue.submit([commandBuffer]);
       }
     }
-
+    console.log("culling completed in" + (Date.now() - time) + "ms")
+    time = Date.now();
     console.log("splicing output")
     const finalRes = [];
+    const mappedKeys = [];
+    var concat;
     for(var i = 0; i < 16; i++){
-      await atomsList[i].mapAsync(GPUMapMode.READ);
+      await keyList[i].mapAsync(GPUMapMode.READ);
       await results[i].mapAsync(GPUMapMode.READ);
       var res = new Float32Array(results[i].getMappedRange());
+      var key = new Int32Array(keyList[i].getMappedRange());
       var lastIndex = res.length - 1;
       while (lastIndex >= 0 && res[lastIndex] === 0) {
           lastIndex--;
       }
-      
-      // Remove the trailing zeros using the splice method
-      finalRes.push(res.slice(0,lastIndex + 1),0);
-    }
-    console.log("done splicing output")
+      lastIndex++;
 
-    console.log(new Float32Array(atomsList[2].getMappedRange()));
-    console.log("done determining gaussian tile intersections")
-    let chunkedArray = chunkArray(finalRes[4], 20);
-    console.log(chunkedArray);
+      // Remove the trailing zeros using the splice method
+      finalRes.push(res.slice(0,lastIndex));
+      mappedKeys.push(key.slice(0,lastIndex/20));
+
+    }
+    console.log("splicing completed in" + (Date.now() - time) + "ms")
+    time = Date.now();
+    //let chunkedArray = chunkArray(finalRes[4], 20);
+    //console.log(chunkedArray);
     //console.log('input', input);
 
 /*
@@ -445,6 +459,31 @@ async function main() {
     console.log("done sorting each list");
 */
 
+/*
+    let concatenatedArray = mappedKeys.reduce((acc, currentArray) => {
+      return new Float32Array([...acc, ...currentArray]);
+    }, new Float32Array());
+    console.log("concatenation completed in " + (Date.now() - time) + "ms")
+*/
+    time = Date.now();
+    console.log("sorting key lists");
+
+    const engine_ctx = new EngineContext();
+    await engine_ctx.initialize();
+    for( var i = 0; i < 16; i++){
+      mappedKeys[i] = await test(mappedKeys[i],engine_ctx);
+    }
+    console.log("sorting completed in" + (Date.now() - time) + "ms")
+/*
+    time = Date.now();
+    console.log("sorting combined key list")
+    let x = await test(concatenatedArray,engine_ctx);
+    console.log("sorting completed in" + (Date.now() - time) + "ms")
+*/
+    //console.log(x)
+
+
+    render(finalRes,mappedKeys);
 }
 
 
@@ -452,9 +491,22 @@ async function main() {
 
 
   //the rendering function
-  function render() {
+  function render(data,keys) {
 
+    console.log("rendering")
 
+    const resultBuffer = device.createBuffer({
+      label: 'result buffer',
+      size: data[0].byteLength,
+      usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
+    });
+    const keyBuffer = device.createBuffer({
+      label: 'result buffer',
+      size: keys[0].byteLength,
+      usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
+    });
+    device.queue.writeBuffer(resultBuffer,0,data[0]);
+    device.queue.writeBuffer(keyBuffer,0,keys[0]);
     // Get the current texture from the canvas context and set it as the texture to render to.
     renderPassDescriptor.colorAttachments[0].view =
         context.getCurrentTexture().createView();
@@ -465,19 +517,20 @@ async function main() {
       label: 'render quad encoder',
     });
     const pass = encoder.beginRenderPass(renderPassDescriptor);
-    pass.setPipeline(pipeline);
+    pass.setPipeline(RenderPipeline);
 
       
     //create a bind group with all the uniform buffers and current cameras texture view and the texture sampler
     var bindGroup = device.createBindGroup({
-      layout: pipeline.getBindGroupLayout(0),
+      layout: RenderPipeline.getBindGroupLayout(0),
       entries: [
-        
+        { binding: 0, resource: { buffer: resultBuffer}},
+        { binding: 1, resource: { buffer: keyBuffer }},
       ],
     });
 
     //set the bind group and draw.
-    //pass.setBindGroup(0, bindGroup);
+    pass.setBindGroup(0, bindGroup);
     pass.draw(6);
 
     pass.end();
