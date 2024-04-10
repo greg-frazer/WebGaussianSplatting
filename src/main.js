@@ -61,7 +61,6 @@ async function main() {
     code: await (await fetch("src/shaders/shader.txt")).text(),
   });
 
-
   //initialize the rendering pipeline, with alpha blending.
   const RenderPipeline = device.createRenderPipeline({
     label: 'hardcoded textured quad pipeline',
@@ -74,6 +73,9 @@ async function main() {
       module,
       entryPoint: 'fs',
       targets: [{ format: presentationFormat, blend: {color: {srcFactor : "src-alpha", dstFactor: "dst-alpha", operation:"add"}, alpha: {srcFactor : "src-alpha", dstFactor: "dst-alpha", operation : "add"}} }],
+    },
+    primitive: {
+      topology: "point-list",
     },
   });
 
@@ -94,26 +96,91 @@ async function main() {
   var cloud;
   const loader = new PLYLoader();
   loader.setCustomPropertyNameMapping({
-    pointsColour: ['x','y','z','nx','ny','nz','f_dc_0','f_dc_1','f_dc_2','opacity'],
+    pointsColour: ['x','y','z','nx','ny','nz','f_rest_0','f_rest_1','f_rest_2','opacity'],
     scaleRotation: ['scale_0','scale_1','scale_2','rot_0','rot_1','rot_2','rot_3'],
+    Color: ['f_dc_0','f_dc_1','f_dc_2','f_rest_0','f_rest_1','f_rest_2','f_rest_3','f_rest_4','f_rest_5','f_rest_6','f_rest_7','f_rest_8'],
+    Color2: ['f_rest_9','f_rest_10','f_rest_11','f_rest_12','f_rest_13','f_rest_14','f_rest_15','f_rest_16','f_rest_17','f_rest_18','f_rest_19','f_rest_20','f_rest_21','f_rest_22','f_rest_23'],
+    //Color3: ['f_rest_24','f_rest_25','f_rest_26','f_rest_27','f_rest_28','f_rest_29','f_rest_30','f_rest_31','f_rest_32','f_rest_33','f_rest_34','f_rest_35','f_rest_36','f_rest_37','f_rest_38','f_rest_39','f_rest_40','f_rest_41','f_rest_42','f_rest_43','f_rest_44'],
     //17 elements
     //f_dc TAKES VALUES > 1? IS THIS THE COLOUR CHANNEL?? OPACITY ALSO TAKES NEGATIVE VALUES AND VALUES > 1, MAYBE FINE DUE TO THE VALUES RETURNED BY GAUSSIAN FUNCTION.
   })
 
   var data;
+  var pointsColourData;
+  var covarianceMatrices;
+  var ColorData;
+  var ColorData2;
+
+  function redraw(){
+    initBuffers(pointsColourData,covarianceMatrices,ColorData,ColorData2);
+    compute(covarianceMatrices,pointsColourData,camera,ColorData,ColorData2);
+  }
+
+  document.addEventListener('keydown', function(event) {
+    if(event.keyCode == 37) {
+      camera.x += 1;
+      redraw();
+
+    }
+    else if(event.keyCode == 38) {
+        camera.y -= 1;
+        redraw();
+    }
+    else if(event.keyCode == 37) {
+      camera.x += 1;
+      redraw();
+
+    }
+    else if(event.keyCode == 40) {
+      camera.y += 1;
+      redraw();
+    }
+    else if(event.keyCode == 78) {
+      camera.z += 1;
+      redraw();
+
+    }
+    else if(event.keyCode == 77) {
+      camera.z -= 1;
+      redraw();
+    }
+    else if(event.keyCode == 68) {
+      camera.pitch += 0.2;
+      redraw();
+    }
+    else if(event.keyCode == 65) {
+      camera.pitch -= 0.2;
+      redraw();
+    }
+    else if(event.keyCode == 81) {
+      camera.yaw += 0.2;
+      redraw();
+    }
+    else if(event.keyCode == 69) {
+      camera.yaw -= 0.2;
+      redraw();
+    }
+    else if(event.keyCode == 87) {
+      camera.roll += 0.2;
+      redraw();
+    }
+    else if(event.keyCode == 83) {
+      camera.roll -= 0.2;
+      redraw();
+    }
+});
  
   loader.load(
     'src/point_cloud.ply',
     async function (geometry) {
       data = new THREE.Points( geometry, material );
-      var pointsColourData = data.geometry.attributes.pointsColour.array;
+      pointsColourData = data.geometry.attributes.pointsColour.array;
       var scaleRotationData = data.geometry.attributes.scaleRotation.array;
+      ColorData = data.geometry.attributes.Color.array;
+      ColorData2 = data.geometry.attributes.Color2.array;
       const scaleRotationSplit = splitList(scaleRotationData,7);
-      const covarianceMatrices = await computeInverseCovarMatrix(scaleRotationSplit);
-      initBuffers(pointsColourData,covarianceMatrices);
-      //console.log(points);
-      //console.log("heheheheh");
-      compute(covarianceMatrices,pointsColourData,camera);
+      covarianceMatrices = await computeInverseCovarMatrix(scaleRotationSplit);
+      redraw();
     },
     (xhr) => {
         console.log((xhr.loaded / xhr.total) * 100 + '% loaded')
@@ -157,7 +224,7 @@ async function main() {
   }
 
   var time;
-  const camera = new Camera(0,2,0,0,0,0);
+  const camera = new Camera(0,-1,-1,1,Math.PI,0);
   var outputs = [];
   var results = [];
   var keyList = [];
@@ -193,6 +260,11 @@ async function main() {
     size: 4*4,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
+  const camPosBuffer = device.createBuffer({
+    label: 'uniforms for quad',
+    size: 3*4,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  });
   const atom = device.createBuffer({
     label: 'atom buffer',
     size: 4,
@@ -201,10 +273,27 @@ async function main() {
   
   var workBuffer;
   var InverseCovarBuffer;
-  function initBuffers(pointsColourData, covarianceMatrices){
+  var colorBuffer;
+  var colorBuffer2;
+  function initBuffers(pointsColourData, covarianceMatrices, colorData, colorData2){
+    outputs = [];
+    results = [];
+    keyList = [];
+    keyOutputs = [];
     workBuffer = device.createBuffer({
       label: 'work buffer',
       size: pointsColourData.byteLength,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+    });
+    //too large, arbitrarily dividing by 2
+    colorBuffer = device.createBuffer({
+      label: 'color Buffer',
+      size: colorData.byteLength-4000000,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+    });
+    colorBuffer2 = device.createBuffer({
+      label: 'color Buffer',
+      size: colorData2.byteLength-40000000,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
     });
 
@@ -335,7 +424,7 @@ async function main() {
     return invcov;
   }
 
-  async function compute(covarianceMatrices,pointsColourData,camera){
+  async function compute(covarianceMatrices,pointsColourData,camera,colorData,colorData2){
     
     time = Date.now();
     console.log("intizialising determining gaussian tile intersections")
@@ -364,6 +453,8 @@ async function main() {
       },
     });
 
+    device.queue.writeBuffer(colorBuffer,0,colorData.slice(0,colorData.length/2));
+    device.queue.writeBuffer(colorBuffer2,0,colorData2.slice(0,colorData2.length/2));
     device.queue.writeBuffer(workBuffer,0,pointsColourData);
     device.queue.writeBuffer(InverseCovarBuffer,0,covarianceMatrices);
 
@@ -376,7 +467,16 @@ async function main() {
     const camVars = new Float32Array(4);
     camVars.set([camera.hfov,camera.vfov,camera.farz,camera.closez],0);
     device.queue.writeBuffer(camVarsBuffer,0,camVars);
-
+    const cameraPos = new Float32Array(3);
+    cameraPos.set([camera.x,camera.y,camera.z],0);
+    device.queue.writeBuffer(camPosBuffer,0,cameraPos);
+    const projectionMatrix = mat4.create(Math.atan(camera.hfov/2),0,0,0,0,Math.atan(camera.vfov/2),0,0,0,0,-(camera.farz+camera.closez)/(camera.farz-camera.closez),-1,0,0,-2*(camera.farz*camera.closez)/(camera.farz-camera.closez),0);
+    const ProjectionMatrixBuffer = device.createBuffer({
+      label: 'uniforms for quad',
+      size: 16*4,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    device.queue.writeBuffer(ProjectionMatrixBuffer,0,projectionMatrix);
 
     console.log("init completed in" + (Date.now() - time) + "ms")
     time = Date.now();
@@ -398,6 +498,10 @@ async function main() {
             { binding: 5, resource: { buffer: atom } },
             { binding: 6, resource: { buffer: outputs[i*4 + j] } },
             { binding: 7, resource: { buffer: keyOutputs[i*4 + j] } },
+            { binding: 8, resource: { buffer: ProjectionMatrixBuffer } },
+            { binding: 9, resource: { buffer: camPosBuffer } },
+            { binding: 10, resource: { buffer: colorBuffer } },
+            { binding: 13, resource: { buffer: colorBuffer2 } },
             { binding: 11, resource: { buffer: viewMatrixInverseBuffer } },
             { binding: 12, resource: { buffer: viewMatrixTransposeInverseBuffer } },
           ],
@@ -482,8 +586,7 @@ async function main() {
 */
     //console.log(x)
 
-
-    render(finalRes,mappedKeys);
+    render(finalRes,mappedKeys,projectionMatrix);
 }
 
 
@@ -491,51 +594,64 @@ async function main() {
 
 
   //the rendering function
-  function render(data,keys) {
+  function render(data,keys,projMat) {
 
     console.log("rendering")
 
-    const resultBuffer = device.createBuffer({
-      label: 'result buffer',
-      size: data[0].byteLength,
-      usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
+    const ProjectionMatrixBuffer = device.createBuffer({
+      label: 'uniforms for quad',
+      size: 16*4,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
-    const keyBuffer = device.createBuffer({
-      label: 'result buffer',
-      size: keys[0].byteLength,
-      usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
-    });
-    device.queue.writeBuffer(resultBuffer,0,data[0]);
-    device.queue.writeBuffer(keyBuffer,0,keys[0]);
-    // Get the current texture from the canvas context and set it as the texture to render to.
-    renderPassDescriptor.colorAttachments[0].view =
-        context.getCurrentTexture().createView();
+    device.queue.writeBuffer(ProjectionMatrixBuffer,0,projMat);
+    for(var i = 0; i < 16; i++){
+      const resultBuffer = device.createBuffer({
+        label: 'result buffer',
+        size: data[i].byteLength,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+      });
+      const keyBuffer = device.createBuffer({
+        label: 'result buffer',
+        size: keys[i].byteLength,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+      });
+      device.queue.writeBuffer(resultBuffer,0,data[i]);
+      device.queue.writeBuffer(keyBuffer,0,keys[i]);
+      // Get the current texture from the canvas context and set it as the texture to render to.
+      renderPassDescriptor.colorAttachments[0].view =
+          context.getCurrentTexture().createView();
+  
+  
+      //create a command encoder and start a render pass.
+      const encoder = device.createCommandEncoder({
+        label: 'render quad encoder',
+      });
+      const pass = encoder.beginRenderPass(renderPassDescriptor);
+      pass.setPipeline(RenderPipeline);
+  
+        
+      //create a bind group with all the uniform buffers and current cameras texture view and the texture sampler
+      var bindGroup = device.createBindGroup({
+        layout: RenderPipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: resultBuffer}},
+          { binding: 1, resource: { buffer: keyBuffer }},
+          { binding: 2, resource: { buffer: ProjectionMatrixBuffer }},
+  
+        ],
+      });
+  
+      //set the bind group and draw.
+      pass.setBindGroup(0, bindGroup);
+      pass.draw(keys[i].length);
+  
+      pass.end();
+      const commandBuffer = encoder.finish();
+      device.queue.submit([commandBuffer]);
+    }
+    
 
-
-    //create a command encoder and start a render pass.
-    const encoder = device.createCommandEncoder({
-      label: 'render quad encoder',
-    });
-    const pass = encoder.beginRenderPass(renderPassDescriptor);
-    pass.setPipeline(RenderPipeline);
-
-      
-    //create a bind group with all the uniform buffers and current cameras texture view and the texture sampler
-    var bindGroup = device.createBindGroup({
-      layout: RenderPipeline.getBindGroupLayout(0),
-      entries: [
-        { binding: 0, resource: { buffer: resultBuffer}},
-        { binding: 1, resource: { buffer: keyBuffer }},
-      ],
-    });
-
-    //set the bind group and draw.
-    pass.setBindGroup(0, bindGroup);
-    pass.draw(6);
-
-    pass.end();
-    const commandBuffer = encoder.finish();
-    device.queue.submit([commandBuffer]);
+    console.log("done rendering")
   }
 
   //create an observer to resize the canvas to match the device
