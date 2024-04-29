@@ -1,5 +1,5 @@
 //extentions : allow user to upload images to use
-import {vec4,mat4} from 'https://webgpufundamentals.org/3rdparty/wgpu-matrix.module.js';
+import {vec4,mat4,mat3} from 'https://webgpufundamentals.org/3rdparty/wgpu-matrix.module.js';
 import * as THREE from 'three';
 import { PLYLoader } from 'three/examples/jsm/loaders/PLYLoader';
 import { mergeSort } from './merge.js';
@@ -46,8 +46,8 @@ async function main() {
 
   // Get a WebGPU context from the canvas and configure it
   const canvas = document.querySelector('canvas');
-  canvas.width = 1000;
-  canvas.height = 400;
+  canvas.width = 1280;
+  canvas.height = 720;
   const context = canvas.getContext('webgpu');
   const presentationFormat = navigator.gpu.getPreferredCanvasFormat();
   context.configure({
@@ -68,6 +68,16 @@ async function main() {
     vertex: {
       module,
       entryPoint: 'vs',
+      buffers: [
+        // keys
+        {
+          arrayStride: 4,
+          stepMode: 'instance',
+          attributes: [
+            {shaderLocation: 0, offset: 0, format: 'sint32' },
+          ],
+        },
+      ],
     },
     fragment: {
       module,
@@ -75,9 +85,10 @@ async function main() {
       targets: [{ format: presentationFormat, blend: {color: {srcFactor : "src-alpha", dstFactor: "dst-alpha", operation:"add"}, alpha: {srcFactor : "src-alpha", dstFactor: "dst-alpha", operation : "add"}} }],
     },
     primitive: {
-      topology: "point-list",
+      topology: "triangle-list",
     },
   });
+  
 
   //initialize a renderPassDescriptor for the pipeline to use
   const renderPassDescriptor = {
@@ -98,7 +109,8 @@ async function main() {
   loader.setCustomPropertyNameMapping({
     pointsColour: ['x','y','z','nx','ny','nz','f_rest_0','f_rest_1','f_rest_2','opacity'],
     scaleRotation: ['scale_0','scale_1','scale_2','rot_0','rot_1','rot_2','rot_3'],
-    Color: ['f_dc_0','f_dc_1','f_dc_2','f_rest_0','f_rest_1','f_rest_2','f_rest_3','f_rest_4','f_rest_5','f_rest_6','f_rest_7','f_rest_8'],
+    //Color: ['f_dc_0','f_dc_1','f_dc_2','f_rest_0','f_rest_1','f_rest_2','f_rest_3','f_rest_4','f_rest_5','f_rest_6','f_rest_7','f_rest_8'],
+    Color: ['f_dc_0','f_dc_1','f_dc_2'],
     Color2: ['f_rest_9','f_rest_10','f_rest_11','f_rest_12','f_rest_13','f_rest_14','f_rest_15','f_rest_16','f_rest_17','f_rest_18','f_rest_19','f_rest_20','f_rest_21','f_rest_22','f_rest_23'],
     //Color3: ['f_rest_24','f_rest_25','f_rest_26','f_rest_27','f_rest_28','f_rest_29','f_rest_30','f_rest_31','f_rest_32','f_rest_33','f_rest_34','f_rest_35','f_rest_36','f_rest_37','f_rest_38','f_rest_39','f_rest_40','f_rest_41','f_rest_42','f_rest_43','f_rest_44'],
     //17 elements
@@ -110,10 +122,11 @@ async function main() {
   var covarianceMatrices;
   var ColorData;
   var ColorData2;
+  var scaleRotationData;
 
   function redraw(){
     initBuffers(pointsColourData,covarianceMatrices,ColorData,ColorData2);
-    compute(covarianceMatrices,pointsColourData,camera,ColorData,ColorData2);
+    compute(covarianceMatrices,pointsColourData,camera,ColorData,ColorData2,scaleRotationData);
   }
 
   document.addEventListener('keydown', function(event) {
@@ -175,7 +188,7 @@ async function main() {
     async function (geometry) {
       data = new THREE.Points( geometry, material );
       pointsColourData = data.geometry.attributes.pointsColour.array;
-      var scaleRotationData = data.geometry.attributes.scaleRotation.array;
+      scaleRotationData = data.geometry.attributes.scaleRotation.array;
       ColorData = data.geometry.attributes.Color.array;
       ColorData2 = data.geometry.attributes.Color2.array;
       const scaleRotationSplit = splitList(scaleRotationData,7);
@@ -208,8 +221,8 @@ async function main() {
       this.roll = roll;
       this.farz = 1000;
       this.closez = 0.1;
-      this.hfov = 90;
-      this.vfov = 90;
+      this.hfov = 70;
+      this.vfov = 70;
     }
 
     calcViewMatrix(){
@@ -285,10 +298,10 @@ async function main() {
       size: pointsColourData.byteLength,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
     });
-    //too large, arbitrarily dividing by 2
+    //too large, arbitrarily subtracting...
     colorBuffer = device.createBuffer({
       label: 'color Buffer',
-      size: colorData.byteLength-4000000,
+      size: colorData.byteLength,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
     });
     colorBuffer2 = device.createBuffer({
@@ -424,11 +437,17 @@ async function main() {
     return invcov;
   }
 
-  async function compute(covarianceMatrices,pointsColourData,camera,colorData,colorData2){
+  async function compute(covarianceMatrices,pointsColourData,camera,colorData,colorData2,scaleRotationData){
     
     time = Date.now();
     console.log("intizialising determining gaussian tile intersections")
-    
+
+    const covarDataBuffer = device.createBuffer({
+      label: 'covar Data buffer',
+      size: scaleRotationData.byteLength,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+    });
+    device.queue.writeBuffer(covarDataBuffer, 0, scaleRotationData);
     //do these modify viewMatrix in place -- dont think so (did print tests for transpose(), did not do for inverse()).
     const viewMatrix = camera.calcViewMatrix();
     const viewMatrixTranspose = mat4.transpose(viewMatrix);
@@ -504,6 +523,7 @@ async function main() {
             { binding: 13, resource: { buffer: colorBuffer2 } },
             { binding: 11, resource: { buffer: viewMatrixInverseBuffer } },
             { binding: 12, resource: { buffer: viewMatrixTransposeInverseBuffer } },
+            { binding: 14, resource: { buffer: covarDataBuffer } },
           ],
         });
 
@@ -594,16 +614,23 @@ async function main() {
 
 
   //the rendering function
-  function render(data,keys,projMat) {
+  async function render(data,keys,projMat) {
 
     console.log("rendering")
 
+    const camMat = mat3.create(camera.hfov,0,0,0,camera.vfov,0,0,0,1);
     const ProjectionMatrixBuffer = device.createBuffer({
       label: 'uniforms for quad',
       size: 16*4,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
+    const CameraMatrixBuffer = device.createBuffer({
+      label: 'uniforms for quad',
+      size: 9*8,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
     device.queue.writeBuffer(ProjectionMatrixBuffer,0,projMat);
+    device.queue.writeBuffer(CameraMatrixBuffer,0,camMat);
     for(var i = 0; i < 16; i++){
       const resultBuffer = device.createBuffer({
         label: 'result buffer',
@@ -611,9 +638,9 @@ async function main() {
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
       });
       const keyBuffer = device.createBuffer({
-        label: 'result buffer',
+        label: 'key buffer',
         size: keys[i].byteLength,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST | GPUBufferUsage.VERTEX,
       });
       device.queue.writeBuffer(resultBuffer,0,data[i]);
       device.queue.writeBuffer(keyBuffer,0,keys[i]);
@@ -635,15 +662,17 @@ async function main() {
         layout: RenderPipeline.getBindGroupLayout(0),
         entries: [
           { binding: 0, resource: { buffer: resultBuffer}},
-          { binding: 1, resource: { buffer: keyBuffer }},
+          { binding: 1, resource: { buffer: CameraMatrixBuffer }},
           { binding: 2, resource: { buffer: ProjectionMatrixBuffer }},
+          { binding: 3, resource: { buffer: camPosBuffer } },
   
         ],
       });
   
       //set the bind group and draw.
+      pass.setVertexBuffer(0,keyBuffer);
       pass.setBindGroup(0, bindGroup);
-      pass.draw(keys[i].length);
+      pass.draw(6,keys[i].length);
   
       pass.end();
       const commandBuffer = encoder.finish();

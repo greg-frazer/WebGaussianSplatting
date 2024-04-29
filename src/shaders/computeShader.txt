@@ -12,6 +12,7 @@
 @group(0) @binding(13) var<storage, read_write> shs2: array<f32>;
 @group(0) @binding(11) var<uniform> viewMatrixInverse: mat4x4f;
 @group(0) @binding(12) var<uniform> viewMatrixTransposeInverse: mat4x4f;
+@group(0) @binding(14) var<storage, read_write> scaleRot: array<f32>;
 
 
 
@@ -40,21 +41,22 @@
     let c22 = 0.31539156525252005f;
     let c23 = -1.0925484305920792f;
     let c24 = 0.5462742152960396f;
-    var pos = vec4f(data[global_invocation_index*10],data[global_invocation_index*10+1],data[global_invocation_index*10+2],1);
-    let ray = normalize(vec3f(pos.x - camPos.x,pos.y - camPos.y, pos.z - camPos.z));
-    pos = viewMatrix*pos;
+    var wpos = vec4f(data[global_invocation_index*10],data[global_invocation_index*10+1],data[global_invocation_index*10+2],1);
+    let ray = normalize(vec3f(wpos.x - camPos.x,wpos.y - camPos.y, wpos.z - camPos.z));
+    var pos = viewMatrix*wpos;
 
     let dist = sqrt((pos.x * pos.x) + (pos.y * pos.y) + (pos.z * pos.z));
 
-    //let a = shs2[0];
-    var colour = vec3f(     c0*shs[0 + global_invocation_index*12] + c1*(-1* shs[3+ global_invocation_index*12] * ray.y + shs[6+ global_invocation_index*12] * ray.z - shs[9+ global_invocation_index*12] * ray.x),        c0*shs[1+ global_invocation_index*12] + c1*(-1* shs[4+ global_invocation_index*12] * ray.y + shs[7+ global_invocation_index*12] * ray.z - shs[10+ global_invocation_index*12] * ray.x),      c0*shs[2+ global_invocation_index*12] + c1*(-1* shs[5+ global_invocation_index*12] * ray.y + shs[8+ global_invocation_index*12] * ray.z - shs[11+ global_invocation_index*12] * ray.x));
-    colour = colour + vec3f(c20 * ray.x * ray.y * shs2[0+ global_invocation_index*15],c20 * ray.x * ray.y * shs2[1+ global_invocation_index*15],c20 * ray.x * ray.y * shs2[2+ global_invocation_index*15])
-            + vec3f(c21 * ray.z * ray.y * shs2[3+ global_invocation_index*15],c21 * ray.z * ray.y * shs2[4+ global_invocation_index*15],c21 * ray.z * ray.y * shs2[5+ global_invocation_index*15])
-            + vec3f(c22 * (2 * ray.z * ray.z - ray.x * ray.x - ray.y * ray.y ) *shs2[6+ global_invocation_index*15],c22 * (2 * ray.z * ray.z - ray.x * ray.x - ray.y * ray.y ) *shs2[7+ global_invocation_index*15],c22 * (2 * ray.z * ray.z - ray.x * ray.x - ray.y * ray.y ) *shs2[8+ global_invocation_index*15])
-            + vec3f(c23 * ray.x * ray.z * shs2[9+ global_invocation_index*15],c23 * ray.x * ray.z * shs2[10+ global_invocation_index*15],c23 * ray.x * ray.z * shs2[11+ global_invocation_index*15])
-            + vec3f(c24 * (ray.x * ray.x - ray.y * ray.y )* shs2[12+ global_invocation_index*15],c24 * (ray.x * ray.x - ray.y * ray.y )* shs2[13+ global_invocation_index*15],c24 * (ray.x * ray.x - ray.y * ray.y )* shs2[14+ global_invocation_index*15]);
+    let a = shs2[0];
+    var colour = vec3f(c0*shs[0 + global_invocation_index*3],c0*shs[1+ global_invocation_index*3],c0*shs[2+ global_invocation_index*3]);
+    //var colour = vec3f(     c0*shs[0 + global_invocation_index*12] + c1*(-1* shs[3+ global_invocation_index*12] * ray.y + shs[6+ global_invocation_index*12] * ray.z - shs[9+ global_invocation_index*12] * ray.x),        c0*shs[1+ global_invocation_index*12] + c1*(-1* shs[4+ global_invocation_index*12] * ray.y + shs[7+ global_invocation_index*12] * ray.z - shs[10+ global_invocation_index*12] * ray.x),      c0*shs[2+ global_invocation_index*12] + c1*(-1* shs[5+ global_invocation_index*12] * ray.y + shs[8+ global_invocation_index*12] * ray.z - shs[11+ global_invocation_index*12] * ray.x));
+    //colour = colour + vec3f(c20 * ray.x * ray.y * shs2[0+ global_invocation_index*15],c20 * ray.x * ray.y * shs2[1+ global_invocation_index*15],c20 * ray.x * ray.y * shs2[2+ global_invocation_index*15])
+    //        + vec3f(c21 * ray.z * ray.y * shs2[3+ global_invocation_index*15],c21 * ray.z * ray.y * shs2[4+ global_invocation_index*15],c21 * ray.z * ray.y * shs2[5+ global_invocation_index*15])
+    //        + vec3f(c22 * (2 * ray.z * ray.z - ray.x * ray.x - ray.y * ray.y ) *shs2[6+ global_invocation_index*15],c22 * (2 * ray.z * ray.z - ray.x * ray.x - ray.y * ray.y ) *shs2[7+ global_invocation_index*15],c22 * (2 * ray.z * ray.z - ray.x * ray.x - ray.y * ray.y ) *shs2[8+ global_invocation_index*15])
+    //        + vec3f(c23 * ray.x * ray.z * shs2[9+ global_invocation_index*15],c23 * ray.x * ray.z * shs2[10+ global_invocation_index*15],c23 * ray.x * ray.z * shs2[11+ global_invocation_index*15])
+    //        + vec3f(c24 * (ray.x * ray.x - ray.y * ray.y )* shs2[12+ global_invocation_index*15],c24 * (ray.x * ray.x - ray.y * ray.y )* shs2[13+ global_invocation_index*15],c24 * (ray.x * ray.x - ray.y * ray.y )* shs2[14+ global_invocation_index*15]);
 
-    //colour += 0.5f;
+    colour -= 0.1f;
     colour.x = max(colour.x,0);
     colour.y = max(colour.y,0);
     colour.z = max(colour.z,0);
@@ -101,13 +103,13 @@
             output1[id*20+7] = colour.y;
             output1[id*20+8] = colour.z;
             output1[id*20+9] = data[global_invocation_index*10+9];
-            output1[id*20+10] = covData[global_invocation_index*9];
-            output1[id*20+11] = covData[global_invocation_index*9+1];
-            output1[id*20+12] = covData[global_invocation_index*9+2];
-            output1[id*20+13] = covData[global_invocation_index*9+3];
-            output1[id*20+14] = covData[global_invocation_index*9+4];
-            output1[id*20+15] = covData[global_invocation_index*9+5];
-            output1[id*20+16] = covData[global_invocation_index*9+6];
+            output1[id*20+10] = scaleRot[global_invocation_index*7];
+            output1[id*20+11] = scaleRot[global_invocation_index*7+1];
+            output1[id*20+12] = scaleRot[global_invocation_index*7+2];
+            output1[id*20+13] = scaleRot[global_invocation_index*7+3];
+            output1[id*20+14] = scaleRot[global_invocation_index*7+4];
+            output1[id*20+15] = scaleRot[global_invocation_index*7+5];
+            output1[id*20+16] = scaleRot[global_invocation_index*7+6];
             output1[id*20+17] = covData[global_invocation_index*9+7];
             output1[id*20+18] = covData[global_invocation_index*9+8];
             output1[id*20+19] = dist;
