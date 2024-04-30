@@ -82,7 +82,7 @@ async function main() {
     fragment: {
       module,
       entryPoint: 'fs',
-      targets: [{ format: presentationFormat, blend: {color: {srcFactor : "src-alpha", dstFactor: "dst-alpha", operation:"add"}, alpha: {srcFactor : "src-alpha", dstFactor: "dst-alpha", operation : "add"}} }],
+      targets: [{ format: presentationFormat, blend: {color: {srcFactor : "one-minus-src-alpha", dstFactor: "dst-alpha", operation:"add"}, alpha: {srcFactor : "src-alpha", dstFactor: "dst-alpha", operation : "add"}} }],
     },
     primitive: {
       topology: "triangle-list",
@@ -665,6 +665,8 @@ async function main() {
           { binding: 1, resource: { buffer: CameraMatrixBuffer }},
           { binding: 2, resource: { buffer: ProjectionMatrixBuffer }},
           { binding: 3, resource: { buffer: camPosBuffer } },
+          { binding: 4, resource: { buffer: viewMatrixBuffer } },
+          { binding: 5, resource: { buffer: keyBuffer } },
   
         ],
       });
