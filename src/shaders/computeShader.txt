@@ -61,13 +61,13 @@
     colour.x = max(colour.x,0);
     colour.y = max(colour.y,0);
     colour.z = max(colour.z,0);
-    //colour -= 0.3f;
+    colour -= 0.1f;
     //colour = colour/max(colour.x,max(colour.y,colour.z));
     //colour = normalize(colour);
 
 
-    //change const 1000 here to farz
-    if((pos.z > 0) & (dist < 1000)){
+    //change const 50 here to farz
+    if((pos.z > 0) & (dist < 50)){
 
         var closestPos: vec4f = vec4f(0,0,pos.z,1);
 

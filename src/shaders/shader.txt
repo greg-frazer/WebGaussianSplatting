@@ -15,8 +15,11 @@ struct MyVSInput {
 @group(0) @binding(2) var<uniform> projectionMatrix: mat4x4f;
 @group(0) @binding(1) var<uniform> cameraMatrix: mat3x3f;
 @group(0) @binding(3) var<uniform> camPos: vec3f;
-@group(0) @binding(4) var<uniform> viewMatrix: mat4x4f;
-@group(0) @binding(5) var<storage, read> keys: array<i32>;
+@group(0) @binding(4) var<uniform> viewMatrixInverse: mat4x4f;
+@group(0) @binding(5) var<uniform> viewMatrixInverseT: mat4x4f;
+@group(0) @binding(6) var<uniform> projMatrixInverse: mat4x4f;
+@group(0) @binding(7) var<uniform> projMatrixInverseT: mat4x4f;
+@group(0) @binding(8) var<uniform> viewMatrix: mat4x4f;
 @vertex fn vs(
 v: MyVSInput,
 @builtin(vertex_index) vertexIndex : u32
@@ -34,23 +37,24 @@ var vsOutput: OurVertexShaderOutput;
 let a = cameraMatrix;
 let b = camPos;
 let c = projectionMatrix;
-let d = viewMatrix;
-let e = keys[0];
+let d = viewMatrixInverse;
+let e = viewMatrix;
 var index = u32(v.key >> 12);
 var worldPosition = vec4f(data[index*20],data[index*20+1],data[index*20+2],1);
 var position = projectionMatrix * worldPosition;
 var covar = mat4x4f(data[index*20+10],data[index*20+11],data[index*20+12],0,data[index*20+13],data[index*20+14],data[index*20+15],0,data[index*20+16],data[index*20+17],data[index*20+18],0,0,0,0,1);
-covar = projectionMatrix * viewMatrix * covar * transpose(viewMatrix) * transpose(projectionMatrix);
+covar = projMatrixInverseT * viewMatrixInverseT * covar * viewMatrixInverse * projMatrixInverse;
+//covar = projectionMatrix * viewMatrix * covar * transpose(viewMatrix) * transpose(projectionMatrix);
 vsOutput.cov1 = covar[0].xyz;
 vsOutput.cov2 = covar[1].xyz;
 vsOutput.cov3 = covar[2].xyz;
 
-vsOutput.position = position + vec4f(quads[vertexIndex]*2,0,0);
-vsOutput.TexCoord = quads[vertexIndex]*2;
+vsOutput.position = position + vec4f(quads[vertexIndex]*0.2,0,0);
+vsOutput.TexCoord = quads[vertexIndex]*0.2;
 
 
 
-vsOutput.color = vec4f(data[index*20+6],data[index*20+7],data[index*20+8],data[index*20+9]*0.01);
+vsOutput.color = vec4f(data[index*20+6],data[index*20+7],data[index*20+8],data[index*20+9]);
 return vsOutput;
 }
 
@@ -59,9 +63,23 @@ return vsOutput;
 
 
 @fragment fn fs(fsInput: OurVertexShaderOutput) -> @location(0) vec4f {
+
+var covar = mat2x2f(fsInput.cov1.xy,fsInput.cov2.xy);
+let power = dot(fsInput.TexCoord* covar, fsInput.TexCoord);
+var alpha = fsInput.color.a * exp(-0.5 * power);
+//var alpha = fsInput.color.a;
+if(alpha > 1/255){
+    alpha /= 100;
+    var tex1 = vec4<f32>(fsInput.color.rgb * alpha, alpha);
+
+    return (tex1);
+}
+
+return( vec4<f32>(0,0,0,1));
+/*    
 var totAlpha: f32 = 0;
-var c = vec4f(0,0,0,0);
-for(var i: u32 = 0; i < 64; i++) {
+var c = vec4f(0,0,0,0.01);
+for(var i: u32 = 0; i < 1; i++) {
     if(totAlpha > 0.99f){
         return (c);
     }
@@ -75,18 +93,18 @@ for(var i: u32 = 0; i < 64; i++) {
 
     let covar2 = mat2x2f(fsInput.cov1.xy,fsInput.cov2.xy);
     let power = dot(position*covar,position);
-    var alpha = color.a * exp(-0.5 * 1);
+    var alpha = color.a * exp(-0.5 * power);
 
     if(alpha < 1/255){
-        discard;
+        continue;
     }
-
+    alpha /= 10;
     totAlpha += alpha;
     c += vec4f(color.rgb * alpha, alpha);
 
 }
 
 return (c);
-
+*/
 
 }

@@ -506,7 +506,7 @@ async function main() {
         offset.set([i,j],0);
         device.queue.writeBuffer(offsetBuffer,0,offset);
         bindGroup = device.createBindGroup({
-          label: 'bindGroup for work buffer',
+          label: 'bindGroup for compute shader',
           layout: pipeline.getBindGroupLayout(0),
           entries: [
             { binding: 0, resource: { buffer: workBuffer } },
@@ -618,6 +618,21 @@ async function main() {
 
     console.log("rendering")
 
+    const inverseProjMat = mat4.invert(projMat);
+    const inverseTransposeProjMat = mat4.invert(mat4.transpose(projMat));
+    const ProjectionMatrixInverseBuffer = device.createBuffer({
+      label: 'uniforms for quad',
+      size: 16*4,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    const ProjectionMatrixTransposeInverseBuffer = device.createBuffer({
+      label: 'uniforms for quad',
+      size: 16*4,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    device.queue.writeBuffer(ProjectionMatrixInverseBuffer,0,inverseProjMat);
+    device.queue.writeBuffer(ProjectionMatrixTransposeInverseBuffer,0,inverseTransposeProjMat);
+
     const camMat = mat3.create(camera.hfov,0,0,0,camera.vfov,0,0,0,1);
     const ProjectionMatrixBuffer = device.createBuffer({
       label: 'uniforms for quad',
@@ -665,8 +680,11 @@ async function main() {
           { binding: 1, resource: { buffer: CameraMatrixBuffer }},
           { binding: 2, resource: { buffer: ProjectionMatrixBuffer }},
           { binding: 3, resource: { buffer: camPosBuffer } },
-          { binding: 4, resource: { buffer: viewMatrixBuffer } },
-          { binding: 5, resource: { buffer: keyBuffer } },
+          { binding: 4, resource: { buffer: viewMatrixInverseBuffer } },
+          { binding: 5, resource: { buffer: viewMatrixTransposeInverseBuffer } },
+          { binding: 6, resource: { buffer: ProjectionMatrixInverseBuffer } },
+          { binding: 7, resource: { buffer: ProjectionMatrixTransposeInverseBuffer } },
+          { binding: 8, resource: { buffer: viewMatrixBuffer } },
   
         ],
       });
@@ -685,6 +703,7 @@ async function main() {
     console.log("done rendering")
   }
 
+  /*
   //create an observer to resize the canvas to match the device
   const observer = new ResizeObserver(entries => {
     for (const entry of entries) {
@@ -699,7 +718,7 @@ async function main() {
   });
   //use the observer to resize canvas
   observer.observe(canvas);
-
+  */
 
 }
 
