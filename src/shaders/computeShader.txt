@@ -9,7 +9,6 @@
 @group(0) @binding(8) var<uniform> projectionMatrix: mat4x4f;
 @group(0) @binding(9) var<uniform> camPos: vec3f;
 @group(0) @binding(10) var<storage, read_write> shs: array<f32>;
-@group(0) @binding(13) var<storage, read_write> shs2: array<f32>;
 @group(0) @binding(11) var<uniform> viewMatrixInverse: mat4x4f;
 @group(0) @binding(12) var<uniform> viewMatrixTransposeInverse: mat4x4f;
 @group(0) @binding(14) var<storage, read_write> scaleRot: array<f32>;
@@ -48,8 +47,8 @@
     let dist = sqrt((pos.x * pos.x) + (pos.y * pos.y) + (pos.z * pos.z));
 
     let b = scaleRot[0];
-    let a = shs2[0];
     var colour = vec3f(c0*shs[0 + global_invocation_index*3],c0*shs[1+ global_invocation_index*3],c0*shs[2+ global_invocation_index*3]);
+    //code to incoroprate higher orders of SH function
     //var colour = vec3f(     c0*shs[0 + global_invocation_index*12] + c1*(-1* shs[3+ global_invocation_index*12] * ray.y + shs[6+ global_invocation_index*12] * ray.z - shs[9+ global_invocation_index*12] * ray.x),        c0*shs[1+ global_invocation_index*12] + c1*(-1* shs[4+ global_invocation_index*12] * ray.y + shs[7+ global_invocation_index*12] * ray.z - shs[10+ global_invocation_index*12] * ray.x),      c0*shs[2+ global_invocation_index*12] + c1*(-1* shs[5+ global_invocation_index*12] * ray.y + shs[8+ global_invocation_index*12] * ray.z - shs[11+ global_invocation_index*12] * ray.x));
     //colour = colour + vec3f(c20 * ray.x * ray.y * shs2[0+ global_invocation_index*15],c20 * ray.x * ray.y * shs2[1+ global_invocation_index*15],c20 * ray.x * ray.y * shs2[2+ global_invocation_index*15])
     //        + vec3f(c21 * ray.z * ray.y * shs2[3+ global_invocation_index*15],c21 * ray.z * ray.y * shs2[4+ global_invocation_index*15],c21 * ray.z * ray.y * shs2[5+ global_invocation_index*15])
@@ -62,8 +61,6 @@
     colour.y = max(colour.y,0);
     colour.z = max(colour.z,0);
     colour -= 0.1f;
-    //colour = colour/max(colour.x,max(colour.y,colour.z));
-    //colour = normalize(colour);
 
 
     //change const 50 here to farz

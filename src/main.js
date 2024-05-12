@@ -1,8 +1,6 @@
-//extentions : allow user to upload images to use
 import {vec4,mat4,mat3} from 'https://webgpufundamentals.org/3rdparty/wgpu-matrix.module.js';
 import * as THREE from 'three';
 import { PLYLoader } from 'three/examples/jsm/loaders/PLYLoader';
-import { mergeSort } from './merge.js';
 import {test} from './radix_sort_m.js';
 import { EngineContext } from "./EngineContext.js"
   
@@ -25,13 +23,6 @@ function splitList(inputList,chunks) {
   return result;
 }
 
-function chunkArray(inputArray, chunkSize) {
-  let res = [];
-  for (let i = 0; i < inputArray.length; i += chunkSize) {
-    res.push(inputArray.slice(i, i + chunkSize));
-  }
-  return res;
-}
 
 async function main() {
 
@@ -95,7 +86,6 @@ async function main() {
     label: 'our basic canvas renderPass',
     colorAttachments: [
       {
-        // view: <- to be filled out when we render
         loadOp: 'load',
         storeOp: 'store',
       },
@@ -109,24 +99,22 @@ async function main() {
   loader.setCustomPropertyNameMapping({
     pointsColour: ['x','y','z','nx','ny','nz','f_rest_0','f_rest_1','f_rest_2','opacity'],
     scaleRotation: ['scale_0','scale_1','scale_2','rot_0','rot_1','rot_2','rot_3'],
-    //Color: ['f_dc_0','f_dc_1','f_dc_2','f_rest_0','f_rest_1','f_rest_2','f_rest_3','f_rest_4','f_rest_5','f_rest_6','f_rest_7','f_rest_8'],
     Color: ['f_dc_0','f_dc_1','f_dc_2'],
-    Color2: ['f_rest_9','f_rest_10','f_rest_11','f_rest_12','f_rest_13','f_rest_14','f_rest_15','f_rest_16','f_rest_17','f_rest_18','f_rest_19','f_rest_20','f_rest_21','f_rest_22','f_rest_23'],
+    //Color: ['f_dc_0','f_dc_1','f_dc_2','f_rest_0','f_rest_1','f_rest_2','f_rest_3','f_rest_4','f_rest_5','f_rest_6','f_rest_7','f_rest_8'],
+    //Color2: ['f_rest_9','f_rest_10','f_rest_11','f_rest_12','f_rest_13','f_rest_14','f_rest_15','f_rest_16','f_rest_17','f_rest_18','f_rest_19','f_rest_20','f_rest_21','f_rest_22','f_rest_23'],
     //Color3: ['f_rest_24','f_rest_25','f_rest_26','f_rest_27','f_rest_28','f_rest_29','f_rest_30','f_rest_31','f_rest_32','f_rest_33','f_rest_34','f_rest_35','f_rest_36','f_rest_37','f_rest_38','f_rest_39','f_rest_40','f_rest_41','f_rest_42','f_rest_43','f_rest_44'],
-    //17 elements
-    //f_dc TAKES VALUES > 1? IS THIS THE COLOUR CHANNEL?? OPACITY ALSO TAKES NEGATIVE VALUES AND VALUES > 1, MAYBE FINE DUE TO THE VALUES RETURNED BY GAUSSIAN FUNCTION.
+
   })
 
   var data;
   var pointsColourData;
   var covarianceMatrices;
   var ColorData;
-  var ColorData2;
   var scaleRotationData;
 
   function redraw(){
-    initBuffers(pointsColourData,covarianceMatrices,ColorData,ColorData2);
-    compute(covarianceMatrices,pointsColourData,camera,ColorData,ColorData2,scaleRotationData);
+    initBuffers(pointsColourData,covarianceMatrices,ColorData);
+    compute(covarianceMatrices,pointsColourData,camera,ColorData,scaleRotationData);
   }
 
   document.addEventListener('keydown', function(event) {
@@ -139,8 +127,8 @@ async function main() {
         camera.y -= 1;
         redraw();
     }
-    else if(event.keyCode == 37) {
-      camera.x += 1;
+    else if(event.keyCode == 39) {
+      camera.x -= 1;
       redraw();
 
     }
@@ -190,7 +178,6 @@ async function main() {
       pointsColourData = data.geometry.attributes.pointsColour.array;
       scaleRotationData = data.geometry.attributes.scaleRotation.array;
       ColorData = data.geometry.attributes.Color.array;
-      ColorData2 = data.geometry.attributes.Color2.array;
       const scaleRotationSplit = splitList(scaleRotationData,7);
       covarianceMatrices = await computeInverseCovarMatrix(scaleRotationSplit);
       redraw();
@@ -204,11 +191,6 @@ async function main() {
 
   )
 
-  document.addEventListener('keydown', function(event) {
-    if(event.keyCode == 37) {
-        console.log(cloud)
-    }
-  });
 
 
   class Camera{
@@ -221,8 +203,8 @@ async function main() {
       this.roll = roll;
       this.farz = 1000;
       this.closez = 0.1;
-      this.hfov = 70;
-      this.vfov = 70;
+      this.hfov = 90;
+      this.vfov = 90;
     }
 
     calcViewMatrix(){
@@ -287,8 +269,7 @@ async function main() {
   var workBuffer;
   var InverseCovarBuffer;
   var colorBuffer;
-  var colorBuffer2;
-  function initBuffers(pointsColourData, covarianceMatrices, colorData, colorData2){
+  function initBuffers(pointsColourData, covarianceMatrices, colorData){
     outputs = [];
     results = [];
     keyList = [];
@@ -304,11 +285,7 @@ async function main() {
       size: colorData.byteLength,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
     });
-    colorBuffer2 = device.createBuffer({
-      label: 'color Buffer',
-      size: colorData2.byteLength-40000000,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
-    });
+
 
     for(var i = 0; i<16; i++){
       const outputBuffer = device.createBuffer({
@@ -437,7 +414,7 @@ async function main() {
     return invcov;
   }
 
-  async function compute(covarianceMatrices,pointsColourData,camera,colorData,colorData2,scaleRotationData){
+  async function compute(covarianceMatrices,pointsColourData,camera,colorData,scaleRotationData){
     
     time = Date.now();
     console.log("intizialising determining gaussian tile intersections")
@@ -472,8 +449,7 @@ async function main() {
       },
     });
 
-    device.queue.writeBuffer(colorBuffer,0,colorData.slice(0,colorData.length/2));
-    device.queue.writeBuffer(colorBuffer2,0,colorData2.slice(0,colorData2.length/2));
+    device.queue.writeBuffer(colorBuffer,0,colorData);
     device.queue.writeBuffer(workBuffer,0,pointsColourData);
     device.queue.writeBuffer(InverseCovarBuffer,0,covarianceMatrices);
 
@@ -520,7 +496,6 @@ async function main() {
             { binding: 8, resource: { buffer: ProjectionMatrixBuffer } },
             { binding: 9, resource: { buffer: camPosBuffer } },
             { binding: 10, resource: { buffer: colorBuffer } },
-            { binding: 13, resource: { buffer: colorBuffer2 } },
             { binding: 11, resource: { buffer: viewMatrixInverseBuffer } },
             { binding: 12, resource: { buffer: viewMatrixTransposeInverseBuffer } },
             { binding: 14, resource: { buffer: covarDataBuffer } },
@@ -551,7 +526,6 @@ async function main() {
     console.log("splicing output")
     const finalRes = [];
     const mappedKeys = [];
-    var concat;
     for(var i = 0; i < 16; i++){
       await keyList[i].mapAsync(GPUMapMode.READ);
       await results[i].mapAsync(GPUMapMode.READ);
@@ -565,31 +539,13 @@ async function main() {
 
       // Remove the trailing zeros using the splice method
       finalRes.push(res.slice(0,lastIndex));
+
       mappedKeys.push(key.slice(0,lastIndex/20));
 
     }
     console.log("splicing completed in" + (Date.now() - time) + "ms")
     time = Date.now();
-    //let chunkedArray = chunkArray(finalRes[4], 20);
-    //console.log(chunkedArray);
-    //console.log('input', input);
 
-/*
-    console.log("sorting each list with merge sort");
-    for(var i=0; i<16; i++){
-      let chunkedArray = chunkArray(finalRes[i],20);
-      mergeSort(chunkedArray);
-    }
-    console.log("done sorting each list");
-*/
-
-/*
-    let concatenatedArray = mappedKeys.reduce((acc, currentArray) => {
-      return new Float32Array([...acc, ...currentArray]);
-    }, new Float32Array());
-    console.log("concatenation completed in " + (Date.now() - time) + "ms")
-*/
-    time = Date.now();
     console.log("sorting key lists");
 
     const engine_ctx = new EngineContext();
@@ -598,13 +554,6 @@ async function main() {
       mappedKeys[i] = await test(mappedKeys[i],engine_ctx);
     }
     console.log("sorting completed in" + (Date.now() - time) + "ms")
-/*
-    time = Date.now();
-    console.log("sorting combined key list")
-    let x = await test(concatenatedArray,engine_ctx);
-    console.log("sorting completed in" + (Date.now() - time) + "ms")
-*/
-    //console.log(x)
 
     render(finalRes,mappedKeys,projectionMatrix);
 }
@@ -615,7 +564,7 @@ async function main() {
 
   //the rendering function
   async function render(data,keys,projMat) {
-
+    time = Date.now();
     console.log("rendering")
 
     const inverseProjMat = mat4.invert(projMat);
@@ -646,7 +595,7 @@ async function main() {
     });
     device.queue.writeBuffer(ProjectionMatrixBuffer,0,projMat);
     device.queue.writeBuffer(CameraMatrixBuffer,0,camMat);
-    for(var i = 0; i < 16; i++){
+    for(var i = 10; i < 16; i = i + 100){
       const resultBuffer = device.createBuffer({
         label: 'result buffer',
         size: data[i].byteLength,
@@ -659,12 +608,10 @@ async function main() {
       });
       device.queue.writeBuffer(resultBuffer,0,data[i]);
       device.queue.writeBuffer(keyBuffer,0,keys[i]);
-      // Get the current texture from the canvas context and set it as the texture to render to.
+
+
       renderPassDescriptor.colorAttachments[0].view =
           context.getCurrentTexture().createView();
-  
-  
-      //create a command encoder and start a render pass.
       const encoder = device.createCommandEncoder({
         label: 'render quad encoder',
       });
@@ -672,24 +619,18 @@ async function main() {
       pass.setPipeline(RenderPipeline);
   
         
-      //create a bind group with all the uniform buffers and current cameras texture view and the texture sampler
       var bindGroup = device.createBindGroup({
         layout: RenderPipeline.getBindGroupLayout(0),
         entries: [
           { binding: 0, resource: { buffer: resultBuffer}},
-          { binding: 1, resource: { buffer: CameraMatrixBuffer }},
           { binding: 2, resource: { buffer: ProjectionMatrixBuffer }},
-          { binding: 3, resource: { buffer: camPosBuffer } },
           { binding: 4, resource: { buffer: viewMatrixInverseBuffer } },
           { binding: 5, resource: { buffer: viewMatrixTransposeInverseBuffer } },
           { binding: 6, resource: { buffer: ProjectionMatrixInverseBuffer } },
           { binding: 7, resource: { buffer: ProjectionMatrixTransposeInverseBuffer } },
-          { binding: 8, resource: { buffer: viewMatrixBuffer } },
-  
         ],
       });
   
-      //set the bind group and draw.
       pass.setVertexBuffer(0,keyBuffer);
       pass.setBindGroup(0, bindGroup);
       pass.draw(6,keys[i].length);
@@ -700,25 +641,8 @@ async function main() {
     }
     
 
-    console.log("done rendering")
+    console.log("rendering completed in" + (Date.now() - time) + "ms")
   }
-
-  /*
-  //create an observer to resize the canvas to match the device
-  const observer = new ResizeObserver(entries => {
-    for (const entry of entries) {
-      const canvas = entry.target;
-      const width = entry.contentBoxSize[0].inlineSize;
-      const height = entry.contentBoxSize[0].blockSize;
-      canvas.width = Math.max(1, Math.min(width, device.limits.maxTextureDimension2D));
-      canvas.height = Math.max(1, Math.min(height, device.limits.maxTextureDimension2D));
-      // re-render at new dimensions
-      render();
-    }
-  });
-  //use the observer to resize canvas
-  observer.observe(canvas);
-  */
 
 }
 
